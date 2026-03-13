@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="description" content="Recess v2.5 - local-only mobile coding workspace." />
+  <title>Recess</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="header-left">
+        <h1>Recess</h1>
+        <p class="header-subtitle">Local-only mobile mini-IDE</p>
+      </div>
+      <div class="header-actions">
+        <button id="projectsBtn" class="btn" type="button">Projects</button>
+        <button id="treeBtn" class="btn" type="button">Files</button>
+        <button id="runBtn" class="btn btn-primary" type="button">Run</button>
+        <button id="saveBtn" class="btn" type="button">Save</button>
+      </div>
+    </header>
+
+    <section class="project-bar">
+      <label class="project-name-field" for="projectNameInput">Project
+        <input id="projectNameInput" type="text" maxlength="80" placeholder="Project name" />
+      </label>
+      <label class="entry-field" for="entryFileSelect">Entry
+        <select id="entryFileSelect"></select>
+      </label>
+    </section>
+
+    <nav class="mode-tabs" aria-label="Workspace mode">
+      <button class="mode-btn is-active" data-mode="editor" type="button">Editor</button>
+      <button class="mode-btn" data-mode="preview" type="button">Preview</button>
+    </nav>
+
+    <main class="workspace-main">
+      <section id="editorPane" class="pane pane-editor is-active">
+        <div class="editor-meta">
+          <span id="selectedPathText">No file selected</span>
+          <span id="selectedTypeText"></span>
+        </div>
+        <textarea id="editorInput" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Select a file from the file tree."></textarea>
+      </section>
+
+      <section id="previewPane" class="pane pane-preview">
+        <iframe id="previewFrame" title="Project Preview" sandbox="allow-scripts"></iframe>
+        <section id="previewIssuesWrap" class="preview-issues" hidden>
+          <h3>Preview Issues</h3>
+          <ul id="previewIssuesList"></ul>
+        </section>
+      </section>
+    </main>
+
+    <p id="statusText" class="status-text" aria-live="polite"></p>
+  </div>
+
+  <button id="fileHandleBtn" class="file-handle" type="button">Files</button>
+
+  <aside id="fileDrawer" class="drawer drawer-left" hidden>
+    <div id="fileDrawerBackdrop" class="drawer-backdrop"></div>
+    <section class="drawer-sheet drawer-sheet-side" role="dialog" aria-modal="true" aria-label="File Tree">
+      <header class="drawer-header">
+        <h2>Files</h2>
+        <button id="closeTreeBtn" class="btn" type="button">Close</button>
+      </header>
+      <div class="drawer-actions">
+        <button id="newFileBtn" class="btn btn-primary" type="button">New File</button>
+        <button id="newFolderBtn" class="btn" type="button">New Folder</button>
+        <button id="renameNodeBtn" class="btn" type="button">Rename</button>
+        <button id="deleteNodeBtn" class="btn btn-danger" type="button">Delete</button>
+      </div>
+      <ul id="fileTree" class="file-tree"></ul>
+    </section>
+  </aside>
+
+  <aside id="projectsDrawer" class="drawer drawer-bottom" hidden>
+    <div id="projectsDrawerBackdrop" class="drawer-backdrop"></div>
+    <section class="drawer-sheet drawer-sheet-bottom" role="dialog" aria-modal="true" aria-label="Projects">
+      <header class="drawer-header">
+        <h2>Projects</h2>
+        <button id="closeProjectsBtn" class="btn" type="button">Close</button>
+      </header>
+      <div class="drawer-actions">
+        <button id="newProjectBtn" class="btn btn-primary" type="button">New</button>
+        <button id="loadProjectBtn" class="btn" type="button">Load</button>
+        <button id="deleteProjectBtn" class="btn btn-danger" type="button">Delete</button>
+        <button id="exportProjectBtn" class="btn" type="button">Export</button>
+        <button id="importProjectBtn" class="btn" type="button">Import</button>
+      </div>
+      <input id="importProjectInput" type="file" accept="application/json,.json" hidden />
+      <ul id="projectsList" class="projects-list"></ul>
+    </section>
+  </aside>
+
+  <aside id="modalOverlay" class="modal" hidden>
+    <div id="modalBackdrop" class="modal-backdrop"></div>
+    <section class="modal-card" role="dialog" aria-modal="true" aria-label="Action Dialog">
+      <h2 id="modalTitle">Confirm</h2>
+      <p id="modalMessage"></p>
+      <div id="modalInputWrap" class="modal-input-wrap" hidden>
+        <input id="modalInput" type="text" maxlength="120" />
+      </div>
+      <div class="modal-actions">
+        <button id="modalCancelBtn" class="btn" type="button">Cancel</button>
+        <button id="modalConfirmBtn" class="btn btn-primary" type="button">Confirm</button>
+      </div>
+    </section>
+  </aside>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
