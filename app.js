@@ -37,10 +37,14 @@ button {
 
 const $ = (id) => document.getElementById(id);
 const els = {
+    saveStatus: document.getElementById("saveStatusText"),
+    lastSaved: document.getElementById("lastSavedText"),
   status: $("statusText"), projectName: $("projectNameInput"), entry: $("entryFileSelect"),
   editor: $("editorInput"), frame: $("previewFrame"), path: $("selectedPathText"), kind: $("selectedTypeText"),
   editorPane: $("editorPane"), previewPane: $("previewPane"), modeBtns: [...document.querySelectorAll(".mode-btn")],
   issuesWrap: $("previewIssuesWrap"), issuesList: $("previewIssuesList"),
+  previewFallback: $("previewFallback"), previewFallbackMsg: $("previewFallbackMsg"),
+  reloadPreviewBtn: $("reloadPreviewBtn"), clearDebugBtn: $("clearDebugBtn"),
   projectsBtn: $("projectsBtn"), treeBtn: $("treeBtn"), runBtn: $("runBtn"), saveBtn: $("saveBtn"),
   fileHandle: $("fileHandleBtn"),
   fileDrawer: $("fileDrawer"), fileBackdrop: $("fileDrawerBackdrop"), closeTree: $("closeTreeBtn"),
@@ -54,15 +58,43 @@ const els = {
 
 const state = {
   projects: [], active: null, selectedPath: null, selectedProjectId: null, collapsed: new Set(),
-  mode: "editor", issues: []
+  mode: "editor", issues: [],
+  previewError: null,
+  debugLogs: []
 };
 
 const preview = createPreviewRuntime(els.frame);
 let autosaveTimer = null;
+let savePending = false;
+let lastSavedAt = null;
 let modalResolve = null;
 
 function id(prefix) { return `${prefix}_${crypto?.randomUUID?.() || `${Date.now()}_${Math.floor(Math.random() * 1e6)}`}`; }
 function status(msg) { els.status.textContent = msg; }
+
+function setSaveStatus(state, errorMsg) {
+  if (!els.saveStatus) return;
+  els.saveStatus.classList.remove("saving", "error");
+  if (state === "saving") {
+    els.saveStatus.textContent = "Saving...";
+    els.saveStatus.classList.add("saving");
+  } else if (state === "error") {
+    els.saveStatus.textContent = errorMsg || "Save failed";
+    els.saveStatus.classList.add("error");
+  } else {
+    els.saveStatus.textContent = "All changes saved";
+  }
+}
+
+function setLastSaved(ts) {
+  if (!els.lastSaved) return;
+  if (!ts) {
+    els.lastSaved.textContent = "";
+    return;
+  }
+  const d = new Date(ts);
+  els.lastSaved.textContent = `Last saved: ${d.toLocaleTimeString()}`;
+}
 function normalizePath(p) {
   const raw = (p || "").replace(/\\/g, "/").trim().replace(/^\/+|\/+$/g, "");
   if (!raw) return "";
@@ -95,13 +127,45 @@ function starter(name) {
     createdAt: now, updatedAt: now
   };
 }
-function setIssues(items) { state.issues = (items || []).slice(0, 20); renderIssues(); }
-function pushIssue(text) { if (!text) return; state.issues.unshift(text); state.issues = state.issues.slice(0, 20); renderIssues(); }
+function setIssues(items) {
+  state.issues = (items || []).slice(0, 50);
+  renderIssues();
+}
+function pushIssue(text) {
+  if (!text) return;
+  state.issues.unshift(text);
+  state.issues = state.issues.slice(0, 50);
+  renderIssues();
+}
+function pushDebugLog(msg, type = "info") {
+  state.debugLogs.unshift({ msg, type, ts: Date.now() });
+  state.debugLogs = state.debugLogs.slice(0, 100);
+  renderIssues();
+}
+function clearDebugLogs() {
+  state.debugLogs = [];
+  renderIssues();
+}
 function renderIssues() {
   els.issuesList.innerHTML = "";
-  if (!state.issues.length) { els.issuesWrap.hidden = true; return; }
+  if (!state.issues.length && !state.debugLogs.length) {
+    els.issuesWrap.hidden = true;
+    return;
+  }
   els.issuesWrap.hidden = false;
-  state.issues.forEach((msg) => { const li = document.createElement("li"); li.textContent = msg; els.issuesList.appendChild(li); });
+  // Show debug logs first, then issues
+  state.debugLogs.forEach((log) => {
+    const li = document.createElement("li");
+    li.textContent = `[${new Date(log.ts).toLocaleTimeString()}] ${log.type === "error" ? "[Error] " : ""}${log.msg}`;
+    li.style.color = log.type === "error" ? "#fecaca" : "#b6e3b6";
+    els.issuesList.appendChild(li);
+  });
+  state.issues.forEach((msg) => {
+    const li = document.createElement("li");
+    li.textContent = msg;
+    li.style.color = "#fde2e2";
+    els.issuesList.appendChild(li);
+  });
 }
 function renderMode() {
   const previewMode = state.mode === "preview";
@@ -257,19 +321,35 @@ function pruneCollapsed(path) {
 
 function scheduleSave() {
   if (autosaveTimer) clearTimeout(autosaveTimer);
-  autosaveTimer = setTimeout(() => saveActive(true).catch(() => status("Auto-save failed.")), 450);
+  setSaveStatus("saving");
+  savePending = true;
+  autosaveTimer = setTimeout(() => {
+    saveActive(true).catch(() => setSaveStatus("error", "Auto-save failed."));
+  }, 600);
 }
 
 async function saveActive(quiet = false) {
   if (!state.active) return;
-  touch();
-  await putProject(state.active);
-  await setMetaValue(LAST_PROJECT_META_KEY, state.active.id);
-  const i = state.projects.findIndex((p) => p.id === state.active.id);
-  const s = summary(state.active);
-  if (i >= 0) state.projects[i] = s; else state.projects.push(s);
-  renderProjects();
-  if (!quiet) status(`Saved ${state.active.name}`);
+  setSaveStatus("saving");
+  savePending = true;
+  try {
+    touch();
+    await putProject(state.active);
+    await setMetaValue(LAST_PROJECT_META_KEY, state.active.id);
+    const i = state.projects.findIndex((p) => p.id === state.active.id);
+    const s = summary(state.active);
+    if (i >= 0) state.projects[i] = s; else state.projects.push(s);
+    renderProjects();
+    lastSavedAt = Date.now();
+    setLastSaved(lastSavedAt);
+    setSaveStatus("saved");
+    savePending = false;
+    if (!quiet) status(`Saved ${state.active.name}`);
+  } catch (e) {
+    setSaveStatus("error", e && e.message);
+    savePending = false;
+    if (!quiet) status("Save failed.");
+  }
 }
 
 async function loadById(projectId) {
@@ -281,6 +361,10 @@ async function loadById(projectId) {
   ensureSelectedExists();
   refreshAll();
   await setMetaValue(LAST_PROJECT_META_KEY, project.id);
+  // Set last saved timestamp if available
+  lastSavedAt = project.updatedAt || Date.now();
+  setLastSaved(lastSavedAt);
+  setSaveStatus("saved");
   status(`Loaded ${project.name}`);
 }
 
@@ -296,22 +380,44 @@ async function createProjectAction() {
 
 async function addFileAction() {
   if (!state.active) return;
-  const name = await askText({ title: "New File", message: "Enter a file name (example: notes.txt)", confirmLabel: "Create", value: "new-file.txt" });
-  if (!name) return;
-  if (name.includes("/")) return void status("Invalid file name.");
+  let name;
+  while (true) {
+    name = await askText({ title: "New File", message: "Enter a file name (example: notes.txt)", confirmLabel: "Create", value: "new-file.txt" });
+    if (name === null) return;
+    if (!name.trim() || name.includes("/")) {
+      status("Invalid file name.");
+      continue;
+    }
+    const path = joinPath(selectedFolder(), name);
+    if (pathExists(path)) {
+      status("A file or folder already exists at that path.");
+      continue;
+    }
+    break;
+  }
   const path = joinPath(selectedFolder(), name);
-  if (pathExists(path)) return void status("A file or folder already exists at that path.");
   state.active.files.push({ id: id("file"), name, path, type: "file", content: "" });
   state.selectedPath = path; ensureEntry(state.active); refreshAll(); scheduleSave(); status(`Created file ${path}`);
 }
 
 async function addFolderAction() {
   if (!state.active) return;
-  const name = await askText({ title: "New Folder", message: "Enter a folder name", confirmLabel: "Create", value: "new-folder" });
-  if (!name) return;
-  if (name.includes("/")) return void status("Invalid folder name.");
+  let name;
+  while (true) {
+    name = await askText({ title: "New Folder", message: "Enter a folder name", confirmLabel: "Create", value: "new-folder" });
+    if (name === null) return;
+    if (!name.trim() || name.includes("/")) {
+      status("Invalid folder name.");
+      continue;
+    }
+    const path = joinPath(selectedFolder(), name);
+    if (pathExists(path)) {
+      status("A file or folder already exists at that path.");
+      continue;
+    }
+    break;
+  }
   const path = joinPath(selectedFolder(), name);
-  if (pathExists(path)) return void status("A file or folder already exists at that path.");
   state.active.files.push({ id: id("folder"), name, path, type: "folder" });
   state.selectedPath = path; state.collapsed.delete(path); refreshAll(); scheduleSave(); status(`Created folder ${path}`);
 }
@@ -320,11 +426,22 @@ async function renameNodeAction() {
   if (!state.active || !state.selectedPath) return void status("Select a file or folder first.");
   const selected = nodeAt(state.selectedPath);
   if (!selected) return void status("Selection not found.");
-  const nextName = await askText({ title: "Rename", message: `Rename ${selected.path}`, confirmLabel: "Rename", value: selected.name });
-  if (!nextName) return;
-  if (nextName.includes("/")) return void status("Invalid name.");
+  let nextName;
+  while (true) {
+    nextName = await askText({ title: "Rename", message: `Rename ${selected.path}", confirmLabel: "Rename", value: selected.name });
+    if (nextName === null) return;
+    if (!nextName.trim() || nextName.includes("/")) {
+      status("Invalid name.");
+      continue;
+    }
+    const nextPath = joinPath(parentPath(selected.path), nextName);
+    if (nextPath !== selected.path && pathExists(nextPath, selected.path)) {
+      status("Another node already exists with that path.");
+      continue;
+    }
+    break;
+  }
   const nextPath = joinPath(parentPath(selected.path), nextName);
-  if (nextPath !== selected.path && pathExists(nextPath, selected.path)) return void status("Another node already exists with that path.");
   if (selected.type === "file") {
     const oldPath = selected.path;
     selected.name = nextName; selected.path = nextPath;
@@ -346,7 +463,12 @@ async function deleteNodeAction() {
   if (!state.active || !state.selectedPath) return void status("Select a file or folder first.");
   const selected = nodeAt(state.selectedPath);
   if (!selected) return void status("Selection not found.");
-  const ok = await askConfirm({ title: "Delete", message: `Delete ${selected.path}? This cannot be undone.`, confirmLabel: "Delete", dangerous: true });
+  const ok = await askConfirm({
+    title: "Delete",
+    message: `Are you sure you want to delete ${selected.path}? This cannot be undone.\n\nAll files and folders inside will be permanently removed.`,
+    confirmLabel: "Delete",
+    dangerous: true
+  });
   if (!ok) return;
   if (selected.type === "folder") {
     const prefix = `${selected.path}/`;
@@ -364,7 +486,12 @@ async function deleteProjectAction() {
   if (state.projects.length <= 1) return void status("Keep at least one project.");
   const project = state.projects.find((p) => p.id === state.selectedProjectId);
   if (!project) return void status("Project not found.");
-  const ok = await askConfirm({ title: "Delete Project", message: `Delete project ${project.name}? This cannot be undone.`, confirmLabel: "Delete", dangerous: true });
+  const ok = await askConfirm({
+    title: "Delete Project",
+    message: `Are you sure you want to delete project '${project.name}'? This cannot be undone.\n\nAll files and folders in this project will be permanently removed.`,
+    confirmLabel: "Delete",
+    dangerous: true
+  });
   if (!ok) return;
   await deleteProject(project.id);
   state.projects = state.projects.filter((p) => p.id !== project.id);
@@ -429,43 +556,78 @@ function updateProjectName() {
   if (next !== state.active.name) { state.active.name = next; scheduleSave(); renderProjects(); }
 }
 
-function updateEntry() {
+function renderTree() {
+  els.tree.innerHTML = "";
   if (!state.active) return;
-  const next = els.entry.value;
-  if (!next) return;
-  state.active.entryFile = next; scheduleSave(); status(`Entry file set to ${next}`);
-}
+  const map = treeMap(state.active);
+  const append = (parent, depth) => {
+    (map.get(parent) || []).forEach((n) => {
+      const li = document.createElement("li");
+      const row = document.createElement("div"); row.className = "tree-row";
+      const collapse = document.createElement("button");
+      const nodeBtn = document.createElement("button");
+      const folder = n.type === "folder";
+      const collapsed = state.collapsed.has(n.path);
+      collapse.type = "button"; collapse.className = "tree-collapse-btn"; collapse.disabled = !folder; collapse.textContent = folder ? (collapsed ? "+" : "-") : "";
+      collapse.addEventListener("click", (e) => { e.stopPropagation(); if (!folder) return; collapsed ? state.collapsed.delete(n.path) : state.collapsed.add(n.path); renderTree(); });
+      nodeBtn.type = "button"; nodeBtn.className = "tree-node-btn"; nodeBtn.classList.toggle("is-selected", n.path === state.selectedPath);
+      nodeBtn.style.paddingLeft = `${10 + depth * 14}px`; nodeBtn.textContent = `${folder ? "[D]" : "[F]"} ${n.name}`;
+      nodeBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        state.selectedPath = n.path;
+        renderTree();
+        renderEditor();
+        // On mobile, auto-close drawer and focus editor
+        if (window.innerWidth < 700) {
+          closeDrawer(els.fileDrawer);
+          setFileDrawerState(false);
+          if (els.editor && n.type === "file") {
+            setTimeout(() => { els.editor.focus(); }, 250);
+          }
+        }
+      });
+      row.append(collapse, nodeBtn); li.appendChild(row); els.tree.appendChild(li);
+      if (folder && !collapsed) append(n.path, depth + 1);
+    });
+  };
+  append("", 0);
 
-function runPreview() {
-  if (!state.active) return;
-  try {
-    const result = preview.render(state.active);
-    const warnings = (result.warnings || []).map((w) => `Warning: ${w}`);
-    setIssues(warnings);
-    state.mode = "preview"; renderMode();
-    status(warnings.length ? `Preview loaded with ${warnings.length} warning(s).` : `Preview loaded from ${state.active.entryFile}`);
-  } catch (error) {
-    const msg = `Preview error: ${error.message}`;
-    setIssues([msg]); status(msg);
+  const selectedNode = els.tree.querySelector(".tree-node-btn.is-selected");
+  if (selectedNode) {
+    requestAnimationFrame(() => {
+      selectedNode.scrollIntoView({ block: "nearest" });
+    });
   }
 }
-
-function registerPreviewMessages() {
-  window.addEventListener("message", (event) => {
-    const data = event.data;
     if (!data || data.source !== "recess-preview") return;
     if (data.type === "runtime-error") {
       const p = data.payload || {};
       const detail = p.source ? ` (${p.source}${p.line ? `:${p.line}` : ""})` : "";
-      pushIssue(`Runtime: ${p.message || "Unknown error"}${detail}`);
+      pushDebugLog(`Runtime: ${p.message || "Unknown error"}${detail}`, "error");
     }
     if (data.type === "console-error") {
-      pushIssue(`Console error: ${(data.payload && data.payload.message) || "Unknown"}`);
+      pushDebugLog(`Console error: ${(data.payload && data.payload.message) || "Unknown"}`, "error");
+    }
+    if (data.type === "asset-error") {
+      pushDebugLog(`Asset failed to load: ${data.payload && data.payload.url ? data.payload.url : "Unknown asset"}`, "error");
     }
   });
 }
 
 function registerEvents() {
+      // On mobile, keep controls accessible after keyboard opens
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", () => {
+          document.body.classList.toggle("keyboard-open", window.visualViewport.height < window.innerHeight - 80);
+        });
+      }
+    // On page unload, try to save if pending
+    window.addEventListener("beforeunload", (e) => {
+      if (savePending) {
+        saveActive(true);
+        setSaveStatus("saving");
+      }
+    });
   els.modalCancel.addEventListener("click", () => closeModal({ ok: false }));
   els.modalBackdrop.addEventListener("click", () => closeModal({ ok: false }));
   els.modalConfirm.addEventListener("click", () => closeModal({ ok: true, value: els.modalInput.value }));
@@ -474,6 +636,18 @@ function registerEvents() {
   registerPreviewMessages();
 
   els.modeBtns.forEach((b) => b.addEventListener("click", () => { state.mode = b.dataset.mode; renderMode(); if (state.mode === "preview") runPreview(); }));
+  if (els.reloadPreviewBtn) {
+    els.reloadPreviewBtn.addEventListener("click", () => {
+      runPreview();
+      pushDebugLog("Manual preview reload", "info");
+    });
+  }
+  if (els.clearDebugBtn) {
+    els.clearDebugBtn.addEventListener("click", () => {
+      clearDebugLogs();
+      setIssues([]);
+    });
+  }
   els.editor.addEventListener("input", () => { const n = nodeAt(state.selectedPath); if (!n || n.type !== "file" || els.editor.disabled) return; n.content = els.editor.value; scheduleSave(); });
   els.projectName.addEventListener("blur", updateProjectName);
   els.projectName.addEventListener("keydown", (e) => { if (e.key === "Enter") els.projectName.blur(); });

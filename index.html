@@ -22,6 +22,7 @@
         <button id="projectsBtn" class="btn" type="button">Projects</button>
         <button id="treeBtn" class="btn" type="button">Files</button>
         <button id="runBtn" class="btn btn-primary" type="button">Run</button>
+        <button id="reloadPreviewBtn" class="btn" type="button" title="Reload Preview">Reload</button>
         <button id="saveBtn" class="btn" type="button">Save</button>
       </div>
     </header>
@@ -51,13 +52,24 @@
 
       <section id="previewPane" class="pane pane-preview">
         <iframe id="previewFrame" title="Project Preview" sandbox="allow-scripts"></iframe>
+        <div id="previewFallback" class="preview-fallback" hidden>
+          <div class="preview-fallback-inner">
+            <h3>Preview Unavailable</h3>
+            <p id="previewFallbackMsg">Could not render the preview. Check your entry file and assets.</p>
+          </div>
+        </div>
         <section id="previewIssuesWrap" class="preview-issues" hidden>
-          <h3>Preview Issues</h3>
+          <h3>Debug Console</h3>
           <ul id="previewIssuesList"></ul>
+          <button id="clearDebugBtn" class="btn" type="button">Clear Logs</button>
         </section>
       </section>
     </main>
 
+    <div class="save-status-bar">
+      <span id="saveStatusText" class="save-status-text">All changes saved</span>
+      <span id="lastSavedText" class="last-saved-text"></span>
+    </div>
     <p id="statusText" class="status-text" aria-live="polite"></p>
   </div>
 

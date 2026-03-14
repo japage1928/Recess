@@ -91,6 +91,13 @@ function addPreviewBridgeScript(doc) {
       send("console-error", { message: text || "console.error called" });
       return oldError.apply(console, arguments);
     };
+    // Asset load error capture
+    document.addEventListener("error", function(e) {
+      var target = e.target || {};
+      if (target.tagName === "LINK" || target.tagName === "SCRIPT") {
+        send("asset-error", { url: target.href || target.src || "" });
+      }
+    }, true);
     send("ready", {});
   })();`;
 
@@ -170,6 +177,12 @@ export function createPreviewRuntime(frameElement) {
     const entry = fileMap.get(entryPath);
 
     if (!entry) {
+      // Set fallback message in parent if possible
+      if (window.parent && window.parent !== window) {
+        try {
+          window.parent.postMessage({ source: "recess-preview", type: "runtime-error", payload: { message: `Entry file not found: ${entryPath}` } }, "*");
+        } catch (e) {}
+      }
       throw new Error(`Entry file not found: ${entryPath}`);
     }
 
