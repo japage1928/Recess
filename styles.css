@@ -225,6 +225,32 @@ textarea {
   padding: 8px;
 }
 
+.editor-tools {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.editor-tools input {
+  width: 100%;
+  min-height: 40px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #020617;
+  color: var(--text);
+  padding: 8px;
+}
+
+.drawer-search {
+  width: 100%;
+  min-height: 40px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #020617;
+  color: var(--text);
+  padding: 8px;
+}
+
 .project-name-field,
 .entry-field {
   display: flex;
@@ -429,6 +455,57 @@ textarea {
   overscroll-behavior: contain;
 }
 
+.snapshots-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.snapshots-panel h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.snapshots-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  max-height: 24dvh;
+  overflow: auto;
+  background: #020617;
+}
+
+.snapshot-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px;
+  border-bottom: 1px solid #1f2937;
+}
+
+.snapshot-item:last-child {
+  border-bottom: none;
+}
+
+.snapshot-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.snapshot-name {
+  font-size: 0.9rem;
+}
+
+.snapshot-time {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
 .drawer-sheet-side .file-tree {
   max-height: none;
   flex: 1;
@@ -584,11 +661,15 @@ body.file-drawer-open .file-handle {
   }
 
   .header-actions {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
   }
 
   .project-bar {
     grid-template-columns: 2fr 1fr;
+  }
+
+  .editor-tools {
+    grid-template-columns: 2fr 2fr repeat(3, auto);
   }
 
   .modal-card {

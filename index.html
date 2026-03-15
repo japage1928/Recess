@@ -21,7 +21,9 @@
       <div class="header-actions">
         <button id="projectsBtn" class="btn" type="button">Projects</button>
         <button id="treeBtn" class="btn" type="button">Files</button>
+        <button id="searchBtn" class="btn" type="button">Search</button>
         <button id="runBtn" class="btn btn-primary" type="button">Run</button>
+        <button id="shareBtn" class="btn" type="button">Share</button>
         <button id="reloadPreviewBtn" class="btn" type="button" title="Reload Preview">Reload</button>
         <button id="saveBtn" class="btn" type="button">Save</button>
       </div>
@@ -46,6 +48,15 @@
         <div class="editor-meta">
           <span id="selectedPathText">No file selected</span>
           <span id="selectedTypeText"></span>
+        </div>
+        <div class="editor-tools">
+          <label for="findInput" class="visually-hidden">Find in file</label>
+          <input id="findInput" type="search" placeholder="Find in file" aria-label="Find in file" />
+          <label for="replaceInput" class="visually-hidden">Replace with</label>
+          <input id="replaceInput" type="text" placeholder="Replace with" aria-label="Replace with" />
+          <button id="findNextBtn" class="btn" type="button">Next</button>
+          <button id="replaceBtn" class="btn" type="button">Replace</button>
+          <button id="replaceAllBtn" class="btn" type="button">All</button>
         </div>
         <textarea id="editorInput" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Select a file from the file tree."></textarea>
       </section>
@@ -82,9 +93,11 @@
         <h2>Files</h2>
         <button id="closeTreeBtn" class="btn" type="button">Close</button>
       </header>
+      <input id="fileSearchInput" class="drawer-search" type="search" placeholder="Search files" aria-label="Search files" />
       <div class="drawer-actions">
         <button id="newFileBtn" class="btn btn-primary" type="button">New File</button>
         <button id="newFolderBtn" class="btn" type="button">New Folder</button>
+        <button id="duplicateNodeBtn" class="btn" type="button">Duplicate</button>
         <button id="renameNodeBtn" class="btn" type="button">Rename</button>
         <button id="deleteNodeBtn" class="btn btn-danger" type="button">Delete</button>
       </div>
@@ -101,13 +114,34 @@
       </header>
       <div class="drawer-actions">
         <button id="newProjectBtn" class="btn btn-primary" type="button">New</button>
+        <button id="duplicateProjectBtn" class="btn" type="button">Duplicate</button>
         <button id="loadProjectBtn" class="btn" type="button">Load</button>
         <button id="deleteProjectBtn" class="btn btn-danger" type="button">Delete</button>
         <button id="exportProjectBtn" class="btn" type="button">Export</button>
+        <button id="exportBundleBtn" class="btn" type="button">Bundle</button>
         <button id="importProjectBtn" class="btn" type="button">Import</button>
+        <button id="snapshotProjectBtn" class="btn" type="button">Snapshot</button>
       </div>
       <input id="importProjectInput" type="file" accept="application/json,.json" hidden />
       <ul id="projectsList" class="projects-list"></ul>
+      <section class="snapshots-panel">
+        <div class="drawer-header">
+          <h3>Snapshots</h3>
+        </div>
+        <ul id="snapshotsList" class="snapshots-list"></ul>
+      </section>
+    </section>
+  </aside>
+
+  <aside id="searchDrawer" class="drawer drawer-bottom" hidden>
+    <div id="searchDrawerBackdrop" class="drawer-backdrop"></div>
+    <section class="drawer-sheet drawer-sheet-bottom" role="dialog" aria-modal="true" aria-label="Search">
+      <header class="drawer-header">
+        <h2>Search</h2>
+        <button id="closeSearchBtn" class="btn" type="button">Close</button>
+      </header>
+      <input id="globalSearchInput" class="drawer-search" type="search" placeholder="Search file names or content" aria-label="Search file names or content" />
+      <ul id="searchResultsList" class="projects-list"></ul>
     </section>
   </aside>
 

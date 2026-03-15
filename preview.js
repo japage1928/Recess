@@ -1,33 +1,23 @@
 function normalizePath(path) {
-  if (!path) {
-    return "";
-  }
-
+  if (!path) return "";
   const cleaned = path.replace(/\\/g, "/").trim().replace(/^\/+|\/+$/g, "");
-  if (!cleaned) {
-    return "";
-  }
+  if (!cleaned) return "";
 
   const out = [];
   for (const segment of cleaned.split("/")) {
-    if (!segment || segment === ".") {
-      continue;
-    }
+    if (!segment || segment === ".") continue;
     if (segment === "..") {
       out.pop();
       continue;
     }
     out.push(segment);
   }
-
   return out.join("/");
 }
 
 function getDir(path) {
   const normalized = normalizePath(path);
-  if (!normalized.includes("/")) {
-    return "";
-  }
+  if (!normalized.includes("/")) return "";
   return normalized.slice(0, normalized.lastIndexOf("/"));
 }
 
@@ -39,13 +29,14 @@ function resolvePath(baseFilePath, targetPath) {
     cleanTarget.startsWith("https://") ||
     cleanTarget.startsWith("data:") ||
     cleanTarget.startsWith("blob:") ||
+    cleanTarget.startsWith("mailto:") ||
+    cleanTarget.startsWith("tel:") ||
     cleanTarget.startsWith("#")
   ) {
     return null;
   }
 
   const targetNoQuery = cleanTarget.split("?")[0].split("#")[0];
-
   if (targetNoQuery.startsWith("/")) {
     return normalizePath(targetNoQuery);
   }
@@ -60,8 +51,34 @@ function contentTypeFor(path) {
   if (lower.endsWith(".js")) return "text/javascript";
   if (lower.endsWith(".json")) return "application/json";
   if (lower.endsWith(".html") || lower.endsWith(".htm")) return "text/html";
+  if (lower.endsWith(".svg")) return "image/svg+xml";
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".ico")) return "image/x-icon";
+  if (lower.endsWith(".woff")) return "font/woff";
+  if (lower.endsWith(".woff2")) return "font/woff2";
+  if (lower.endsWith(".ttf")) return "font/ttf";
+  if (lower.endsWith(".otf")) return "font/otf";
+  if (lower.endsWith(".mp3")) return "audio/mpeg";
+  if (lower.endsWith(".wav")) return "audio/wav";
+  if (lower.endsWith(".ogg")) return "audio/ogg";
+  if (lower.endsWith(".mp4")) return "video/mp4";
+  if (lower.endsWith(".webm")) return "video/webm";
   if (lower.endsWith(".txt")) return "text/plain";
-  return "text/plain";
+  return "application/octet-stream";
+}
+
+// Escapes for use in url("...") and attribute values
+function escapeAttr(value) {
+  // Escape ", ), \, and control chars for CSS url context
+  return String(value)
+    .replace(/"/g, "&quot;")
+    .replace(/[)\\\n\r\f]/g, (c) => {
+      // CSS hex escape for control chars and )/\
+      return `\\${c.charCodeAt(0).toString(16)} `;
+    });
 }
 
 function addPreviewBridgeScript(doc) {
@@ -91,11 +108,10 @@ function addPreviewBridgeScript(doc) {
       send("console-error", { message: text || "console.error called" });
       return oldError.apply(console, arguments);
     };
-    // Asset load error capture
     document.addEventListener("error", function(e) {
       var target = e.target || {};
-      if (target.tagName === "LINK" || target.tagName === "SCRIPT") {
-        send("asset-error", { url: target.href || target.src || "" });
+      if (target.tagName === "LINK" || target.tagName === "SCRIPT" || target.tagName === "IMG" || target.tagName === "SOURCE" || target.tagName === "AUDIO" || target.tagName === "VIDEO") {
+        send("asset-error", { url: target.href || target.src || target.poster || "" });
       }
     }, true);
     send("ready", {});
@@ -108,6 +124,171 @@ function addPreviewBridgeScript(doc) {
   }
 }
 
+function cloneProjectFiles(project) {
+  const map = new Map();
+  for (const entry of project.files || []) {
+    if (entry.type === "file") {
+      map.set(normalizePath(entry.path), entry);
+    }
+  }
+  return map;
+}
+
+function encodeDataUrl(fileEntry, contentOverride) {
+  const blob = new Blob([contentOverride ?? fileEntry.content ?? ""], { type: contentTypeFor(fileEntry.path) });
+  return new Promise((resolve, reject) => {
+    try {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = (e) => reject(reader.error || e);
+      reader.onabort = (e) => reject(reader.error || e);
+      reader.readAsDataURL(blob);
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+async function rewriteCssUrls(cssText, cssPath, warnings, urlForPath) {
+  const regex = /url\(([^)]+)\)/gi;
+  let cursor = 0;
+  let out = "";
+  let match;
+  while ((match = regex.exec(cssText))) {
+    out += cssText.slice(cursor, match.index);
+    const target = match[1].trim().replace(/^['"]|['"]$/g, "");
+    const resolved = resolvePath(cssPath, target);
+    if (!resolved) {
+      out += match[0];
+    } else {
+      const nextUrl = await urlForPath(resolved);
+      if (!nextUrl) {
+        warnings.push(`Missing CSS asset: ${resolved}`);
+        out += match[0];
+      } else {
+        out += `url("${escapeAttr(nextUrl)}")`;
+      }
+    }
+    cursor = match.index + match[0].length;
+  }
+  out += cssText.slice(cursor);
+  return out;
+}
+
+async function buildAssetUrl(path, fileMap, warnings, mode, cache) {
+  const normalized = normalizePath(path);
+  if (cache.has(`${mode}:${normalized}`)) return cache.get(`${mode}:${normalized}`);
+  const fileEntry = fileMap.get(normalized);
+  if (!fileEntry) {
+    warnings.push(`Missing asset: ${normalized}`);
+    return null;
+  }
+
+  let result = null;
+  if (normalized.toLowerCase().endsWith(".css")) {
+    const cssText = await rewriteCssUrls(
+      fileEntry.content || "",
+      normalized,
+      warnings,
+      (nextPath) => buildAssetUrl(nextPath, fileMap, warnings, mode, cache)
+    );
+    result = mode === "data"
+      ? await encodeDataUrl(fileEntry, cssText)
+      : URL.createObjectURL(new Blob([cssText], { type: contentTypeFor(fileEntry.path) }));
+  } else if (mode === "data") {
+    result = await encodeDataUrl(fileEntry);
+  } else {
+    result = URL.createObjectURL(new Blob([fileEntry.content || ""], { type: contentTypeFor(fileEntry.path) }));
+  }
+
+  cache.set(`${mode}:${normalized}`, result);
+  return result;
+}
+
+async function rewriteDocumentAssets(doc, entryFilePath, fileMap, warnings, mode, cache) {
+  const urlForPath = async (targetPath) => {
+    const normalized = normalizePath(targetPath);
+    if (cache.has(`${mode}:${normalized}`)) return cache.get(`${mode}:${normalized}`);
+    return buildAssetUrl(normalized, fileMap, warnings, mode, cache);
+  };
+
+  const elements = [
+    ["link[rel~='stylesheet'][href]", "href"],
+    ["script[src]", "src"],
+    ["img[src]", "src"],
+    ["audio[src]", "src"],
+    ["video[src]", "src"],
+    ["source[src]", "src"],
+    ["track[src]", "src"],
+    ["link[rel~='icon'][href]", "href"],
+    ["link[rel~='apple-touch-icon'][href]", "href"],
+    ["video[poster]", "poster"]
+  ];
+
+  for (const [selector, attr] of elements) {
+    const nodes = Array.from(doc.querySelectorAll(selector));
+    for (const node of nodes) {
+      const current = node.getAttribute(attr);
+      const resolved = resolvePath(entryFilePath, current);
+      if (!resolved) continue;
+      const nextUrl = await urlForPath(resolved);
+      if (!nextUrl) continue;
+      node.setAttribute(attr, nextUrl);
+    }
+  }
+
+  const styleTags = Array.from(doc.querySelectorAll("style"));
+  for (const styleTag of styleTags) {
+    styleTag.textContent = await rewriteCssUrls(
+      styleTag.textContent || "",
+      entryFilePath,
+      warnings,
+      (nextPath) => urlForPath(nextPath)
+    );
+  }
+
+  if (doc.head) {
+    const manifest = doc.querySelector('link[rel="manifest"]');
+    if (manifest) manifest.remove();
+  }
+}
+
+function addBaseDocumentBits(doc) {
+  if (!doc.querySelector("meta[charset]")) {
+    const charset = doc.createElement("meta");
+    charset.setAttribute("charset", "utf-8");
+    doc.head?.prepend(charset);
+  }
+  if (!doc.querySelector("meta[name='viewport']")) {
+    const viewport = doc.createElement("meta");
+    viewport.name = "viewport";
+    viewport.content = "width=device-width, initial-scale=1.0";
+    doc.head?.appendChild(viewport);
+  }
+}
+
+async function buildDocument(project, mode, includeBridge) {
+  const fileMap = cloneProjectFiles(project);
+  const entryPath = normalizePath(project.entryFile || "index.html");
+  const entry = fileMap.get(entryPath);
+  if (!entry) throw new Error(`Entry file not found: ${entryPath}`);
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(entry.content || "", "text/html");
+  const warnings = [];
+  const cache = new Map();
+
+  await rewriteDocumentAssets(doc, entryPath, fileMap, warnings, mode, cache);
+  addBaseDocumentBits(doc);
+  if (includeBridge) addPreviewBridgeScript(doc);
+
+  return {
+    html: `<!doctype html>\n${doc.documentElement.outerHTML}`,
+    warnings,
+    urls: Array.from(cache.values()).filter((value) => typeof value === "string" && value.startsWith("blob:"))
+  };
+}
+
 export function createPreviewRuntime(frameElement) {
   let activeBlobUrls = [];
 
@@ -116,92 +297,28 @@ export function createPreviewRuntime(frameElement) {
     activeBlobUrls = [];
   }
 
-  function buildFileMap(project) {
-    const map = new Map();
-    for (const entry of project.files || []) {
-      if (entry.type === "file") {
-        map.set(normalizePath(entry.path), entry);
-      }
-    }
-    return map;
-  }
-
-  function fileToBlobUrl(fileEntry) {
-    const blob = new Blob([fileEntry.content || ""], { type: contentTypeFor(fileEntry.path) });
-    const url = URL.createObjectURL(blob);
-    activeBlobUrls.push(url);
-    return url;
-  }
-
-  function rewriteLinkedAssets(doc, entryFilePath, fileMap, warnings) {
-    const linkEls = Array.from(doc.querySelectorAll('link[rel~="stylesheet"][href]'));
-    linkEls.forEach((linkEl) => {
-      const href = linkEl.getAttribute("href");
-      const resolved = resolvePath(entryFilePath, href);
-      if (!resolved) {
-        return;
-      }
-
-      const file = fileMap.get(resolved);
-      if (!file) {
-        warnings.push(`Missing stylesheet file: ${resolved}`);
-        return;
-      }
-
-      linkEl.setAttribute("href", fileToBlobUrl(file));
-    });
-
-    const scriptEls = Array.from(doc.querySelectorAll("script[src]"));
-    scriptEls.forEach((scriptEl) => {
-      const src = scriptEl.getAttribute("src");
-      const resolved = resolvePath(entryFilePath, src);
-      if (!resolved) {
-        return;
-      }
-
-      const file = fileMap.get(resolved);
-      if (!file) {
-        warnings.push(`Missing script file: ${resolved}`);
-        return;
-      }
-
-      scriptEl.setAttribute("src", fileToBlobUrl(file));
-    });
-  }
-
-  function render(project) {
+  async function render(project) {
     resetBlobUrls();
-
-    const fileMap = buildFileMap(project);
-    const entryPath = normalizePath(project.entryFile || "index.html");
-    const entry = fileMap.get(entryPath);
-
-    if (!entry) {
-      // Set fallback message in parent if possible
-      if (window.parent && window.parent !== window) {
-        try {
-          window.parent.postMessage({ source: "recess-preview", type: "runtime-error", payload: { message: `Entry file not found: ${entryPath}` } }, "*");
-        } catch (e) {}
-      }
-      throw new Error(`Entry file not found: ${entryPath}`);
+    let result;
+    try {
+      result = await buildDocument(project, "blob", true);
+    } catch (err) {
+      resetBlobUrls();
+      throw err;
     }
+    activeBlobUrls = result.urls;
+    frameElement.srcdoc = result.html;
+    return { warnings: result.warnings };
+  }
 
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(entry.content || "", "text/html");
-    const warnings = [];
-
-    rewriteLinkedAssets(doc, entryPath, fileMap, warnings);
-    addPreviewBridgeScript(doc);
-
-    const html = `<!doctype html>\n${doc.documentElement.outerHTML}`;
-    frameElement.srcdoc = html;
-
-    return { warnings };
+  async function buildStandaloneHtml(project) {
+    const result = await buildDocument(project, "data", false);
+    return { html: result.html, warnings: result.warnings };
   }
 
   function dispose() {
     resetBlobUrls();
   }
 
-  return { render, dispose };
+  return { render, buildStandaloneHtml, dispose };
 }
