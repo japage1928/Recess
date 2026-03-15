@@ -3,6 +3,7 @@ import { createPreviewRuntime } from "./preview.js";
 
 const LAST_PROJECT_META_KEY = "lastOpenProjectId";
 const MAX_SNAPSHOTS = 12;
+const DEVBOT_URL = "http://localhost:8000";
 const STARTER_TEMPLATE = {
   name: "My Project",
   entryFile: "index.html",
@@ -61,6 +62,16 @@ const els = {
   globalSearchInput: $("globalSearchInput"), searchResultsList: $("searchResultsList"),
   findInput: $("findInput"), replaceInput: $("replaceInput"), findNextBtn: $("findNextBtn"),
   replaceBtn: $("replaceBtn"), replaceAllBtn: $("replaceAllBtn"),
+  devbotBtn: $("devbotBtn"), devbotDrawer: $("devbotDrawer"), devbotBackdrop: $("devbotDrawerBackdrop"),
+  closeDevbot: $("closeDevbotBtn"), devbotPrompt: $("devbotPromptInput"),
+  devbotContextToggle: $("devbotContextToggle"), devbotForceEscalate: $("devbotForceEscalate"),
+  devbotSubmitBtn: $("devbotSubmitBtn"), devbotResponse: $("devbotResponse"),
+  devbotSourceBadge: $("devbotSourceBadge"), devbotConfidence: $("devbotConfidence"),
+  devbotCost: $("devbotCost"), devbotDuration: $("devbotDuration"), devbotRagSources: $("devbotRagSources"),
+  devbotReviewWarning: $("devbotReviewWarning"), devbotExplanation: $("devbotExplanation"),
+  devbotCodeBlock: $("devbotCodeBlock"), devbotCopyBtn: $("devbotCopyBtn"), devbotInsertBtn: $("devbotInsertBtn"),
+  devbotError: $("devbotError"), devbotLoading: $("devbotLoading"), devbotStatusDot: $("devbotStatusDot"),
+  devbotQuickActions: $("devbotQuickActions"),
   modal: $("modalOverlay"), modalBackdrop: $("modalBackdrop"), modalTitle: $("modalTitle"), modalMsg: $("modalMessage"),
   modalWrap: $("modalInputWrap"), modalInput: $("modalInput"), modalCancel: $("modalCancelBtn"), modalConfirm: $("modalConfirmBtn")
 };
@@ -801,6 +812,172 @@ function registerPreviewMessages() {
     }
   });
 }
+
+const devbot = {
+  lastCode: null,
+
+  setStatus(nextState) {
+    const dot = els.devbotStatusDot;
+    if (!dot) return;
+    const colors = { ok: "#22c55e", warn: "#facc15", error: "#ef4444", idle: "#94a3b8" };
+    dot.style.background = colors[nextState] || colors.idle;
+    dot.title = { ok: "DevBot ready", warn: "Model not loaded", error: "DevBot offline", idle: "Checking..." }[nextState] || "DevBot";
+  },
+
+  async checkHealth() {
+    devbot.setStatus("idle");
+    try {
+      const response = await fetch(`${DEVBOT_URL}/health`, { signal: AbortSignal.timeout(4000) });
+      if (!response.ok) {
+        devbot.setStatus("error");
+        return;
+      }
+      const data = await response.json();
+      const ollama = data?.ollama || {};
+      if (ollama.ollama_running && ollama.model_ready) devbot.setStatus("ok");
+      else if (ollama.ollama_running) devbot.setStatus("warn");
+      else devbot.setStatus("error");
+    } catch {
+      devbot.setStatus("error");
+    }
+  },
+
+  setLoading(on) {
+    els.devbotLoading.hidden = !on;
+    els.devbotSubmitBtn.disabled = on;
+    els.devbotSubmitBtn.textContent = on ? "Generating..." : "Generate";
+    if (on) {
+      els.devbotResponse.hidden = true;
+      els.devbotError.hidden = true;
+    }
+  },
+
+  showResult(data) {
+    devbot.lastCode = data.code || null;
+    const sourceMap = {
+      cache: "Cache (instant, free)",
+      local: "Local model (free)",
+      escalated: "Claude API"
+    };
+    els.devbotSourceBadge.textContent = sourceMap[data.source] || data.source || "";
+    els.devbotConfidence.textContent = `${Math.round((data.confidence || 0) * 100)}% confidence`;
+    els.devbotCost.textContent = data.estimated_cost_usd > 0 ? `$${data.estimated_cost_usd.toFixed(4)}` : "";
+    els.devbotDuration.textContent = typeof data.duration_ms === "number" ? `${data.duration_ms}ms` : "";
+
+    if (Array.isArray(data.rag_sources) && data.rag_sources.length > 0) {
+      els.devbotRagSources.textContent = `Context from: ${data.rag_sources.join(", ")}`;
+      els.devbotRagSources.hidden = false;
+    } else {
+      els.devbotRagSources.hidden = true;
+    }
+
+    els.devbotReviewWarning.hidden = !data.needs_review;
+    els.devbotExplanation.textContent = data.explanation || "";
+    els.devbotCodeBlock.textContent = data.code || "(No code returned)";
+    els.devbotResponse.hidden = false;
+    els.devbotError.hidden = true;
+  },
+
+  showError(msg) {
+    els.devbotError.textContent = msg;
+    els.devbotError.hidden = false;
+    els.devbotResponse.hidden = true;
+  },
+
+  async generate() {
+    const prompt = els.devbotPrompt.value.trim();
+    if (!prompt) {
+      status("Enter a prompt for DevBot.");
+      return;
+    }
+
+    devbot.setLoading(true);
+
+    let contextCode = null;
+    let filePath = null;
+    if (els.devbotContextToggle.checked && state.selectedPath) {
+      const node = nodeAt(state.selectedPath);
+      if (node && node.type === "file") {
+        contextCode = node.content || null;
+        filePath = state.selectedPath;
+      }
+    }
+
+    try {
+      const response = await fetch(`${DEVBOT_URL}/prompt`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          context_code: contextCode,
+          file_path: filePath,
+          skip_cache: false,
+          force_escalate: els.devbotForceEscalate.checked
+        }),
+        signal: AbortSignal.timeout(120000)
+      });
+
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
+      const data = await response.json();
+
+      if (data.success) {
+        devbot.showResult(data);
+        status(`DevBot: ${data.intent} - ${data.source}`);
+      } else {
+        devbot.showError(data.error || "DevBot returned no result.");
+        status("DevBot generation failed.");
+      }
+    } catch (error) {
+      const message = error?.message || "Unknown error";
+      const isOffline = error?.name === "TypeError" || /fetch|network|failed/i.test(message);
+      if (error?.name === "TimeoutError") {
+        devbot.showError("DevBot timed out. Is the server running? Run: uvicorn app.main:app --reload");
+      } else if (isOffline) {
+        devbot.showError("DevBot server not running. Start it with: uvicorn app.main:app --reload");
+      } else {
+        devbot.showError(`DevBot error: ${message}`);
+      }
+      status("DevBot error.");
+    } finally {
+      devbot.setLoading(false);
+    }
+  },
+
+  async copyCode() {
+    if (!devbot.lastCode) return;
+    try {
+      await navigator.clipboard.writeText(devbot.lastCode);
+      els.devbotCopyBtn.textContent = "Copied!";
+      setTimeout(() => { els.devbotCopyBtn.textContent = "Copy code"; }, 1800);
+      status("Code copied to clipboard.");
+    } catch {
+      status("Could not copy - try selecting and copying manually.");
+    }
+  },
+
+  insertCode() {
+    if (!devbot.lastCode) return;
+    if (!state.selectedPath) {
+      status("Select a file in the editor first.");
+      return;
+    }
+    const node = nodeAt(state.selectedPath);
+    if (!node || node.type !== "file") {
+      status("Select an editable file first.");
+      return;
+    }
+    const editor = els.editor;
+    const start = editor.selectionStart ?? editor.value.length;
+    const end = editor.selectionEnd ?? editor.value.length;
+    const insert = `\n${devbot.lastCode}\n`;
+    editor.value = editor.value.slice(0, start) + insert + editor.value.slice(end);
+    editor.selectionStart = editor.selectionEnd = start + insert.length;
+    syncEditorToState();
+    closeDrawer(els.devbotDrawer);
+    status("Code inserted into editor.");
+  }
+};
+
 function registerEvents() {
   if (window.visualViewport) {
     window.visualViewport.addEventListener("resize", () => {
@@ -878,6 +1055,25 @@ function registerEvents() {
     try { await importProjectAction(file); }
     catch (error) { status(`Import failed: ${error.message}`); }
   });
+
+  els.devbotBtn.addEventListener("click", () => openDrawer(els.devbotDrawer));
+  els.closeDevbot.addEventListener("click", () => closeDrawer(els.devbotDrawer));
+  els.devbotBackdrop.addEventListener("click", () => closeDrawer(els.devbotDrawer));
+  els.devbotSubmitBtn.addEventListener("click", () => devbot.generate().catch(() => status("DevBot error.")));
+  els.devbotPrompt.addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+      event.preventDefault();
+      devbot.generate().catch(() => status("DevBot error."));
+    }
+  });
+  els.devbotCopyBtn.addEventListener("click", () => devbot.copyCode());
+  els.devbotInsertBtn.addEventListener("click", () => devbot.insertCode());
+  els.devbotQuickActions.addEventListener("click", (event) => {
+    const chip = event.target.closest(".devbot-chip");
+    if (!chip) return;
+    els.devbotPrompt.value = chip.dataset.prompt || "";
+    devbot.generate().catch(() => status("DevBot error."));
+  });
 }
 function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
@@ -921,6 +1117,7 @@ async function bootstrap() {
 }
 async function init() {
   registerEvents();
+  devbot.checkHealth();
   renderMode();
   renderIssues();
   renderSearchResults();

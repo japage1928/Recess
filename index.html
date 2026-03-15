@@ -26,6 +26,7 @@
         <button id="shareBtn" class="btn" type="button">Share</button>
         <button id="reloadPreviewBtn" class="btn" type="button" title="Reload Preview">Reload</button>
         <button id="saveBtn" class="btn" type="button">Save</button>
+        <button id="devbotBtn" class="btn" type="button">DevBot</button>
       </div>
     </header>
 
@@ -157,6 +158,74 @@
         <button id="modalCancelBtn" class="btn" type="button">Cancel</button>
         <button id="modalConfirmBtn" class="btn btn-primary" type="button">Confirm</button>
       </div>
+    </section>
+  </aside>
+
+  <aside id="devbotDrawer" class="drawer drawer-bottom" hidden>
+    <div id="devbotDrawerBackdrop" class="drawer-backdrop"></div>
+    <section class="drawer-sheet drawer-sheet-bottom" role="dialog" aria-modal="true" aria-label="DevBot AI">
+      <header class="drawer-header">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <h2 style="margin:0;">DevBot</h2>
+          <span id="devbotStatusDot" title="DevBot status" style="width:9px; height:9px; border-radius:50%; background:#94a3b8; display:inline-block; flex-shrink:0;"></span>
+        </div>
+        <button id="closeDevbotBtn" class="btn" type="button">Close</button>
+      </header>
+
+      <div id="devbotQuickActions" style="display:flex; flex-wrap:wrap; gap:6px;">
+        <button class="btn devbot-chip" data-prompt="Create a new HTML component" type="button">New component</button>
+        <button class="btn devbot-chip" data-prompt="Add a loading state to the selected code" type="button">Loading state</button>
+        <button class="btn devbot-chip" data-prompt="Write a reusable JavaScript utility function" type="button">Utility function</button>
+        <button class="btn devbot-chip" data-prompt="Fix the bug in this code" type="button">Fix bug</button>
+        <button class="btn devbot-chip" data-prompt="Refactor this code to be cleaner" type="button">Refactor</button>
+        <button class="btn devbot-chip" data-prompt="Add CSS styles for this element" type="button">Add styles</button>
+      </div>
+
+      <textarea
+        id="devbotPromptInput"
+        placeholder="Describe what you want to build or fix..."
+        rows="3"
+        spellcheck="false"
+        style="width:100%; resize:none; border-radius:10px; border:1px solid var(--border); background:#020617; color:var(--text); padding:10px; font-size:1rem; font-family:inherit; line-height:1.4; min-height:80px; box-sizing:border-box;"
+      ></textarea>
+
+      <div style="display:grid; grid-template-columns:1fr auto auto; gap:8px; align-items:center;">
+        <label style="display:flex; align-items:center; gap:6px; font-size:0.82rem; color:var(--muted); cursor:pointer;">
+          <input id="devbotContextToggle" type="checkbox" />
+          Include current file
+        </label>
+        <label style="display:flex; align-items:center; gap:6px; font-size:0.82rem; color:var(--muted); cursor:pointer;">
+          <input id="devbotForceEscalate" type="checkbox" />
+          Use Claude
+        </label>
+        <button id="devbotSubmitBtn" class="btn btn-primary" type="button" style="white-space:nowrap;">Generate</button>
+      </div>
+
+      <div id="devbotResponse" hidden style="display:flex; flex-direction:column; gap:8px;">
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <span id="devbotSourceBadge" style="font-size:0.8rem; color:var(--accent);"></span>
+          <span id="devbotConfidence" style="font-size:0.8rem; color:var(--muted);"></span>
+          <span id="devbotCost" style="font-size:0.8rem; color:#f97316;"></span>
+          <span id="devbotDuration" style="font-size:0.8rem; color:var(--muted);"></span>
+        </div>
+
+        <div id="devbotRagSources" hidden style="font-size:0.76rem; color:#64748b;"></div>
+
+        <div id="devbotReviewWarning" hidden style="background:#291200; border:1px solid #7c2d12; border-radius:8px; padding:8px 10px; color:#fed7aa; font-size:0.82rem;">Low confidence - review this code before using it</div>
+
+        <p id="devbotExplanation" style="margin:0; color:var(--muted); font-size:0.88rem;"></p>
+
+        <div style="position:relative;">
+          <pre id="devbotCodeBlock" style="margin:0; padding:12px; border-radius:10px; border:1px solid var(--border); background:var(--panel); color:var(--text); font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:0.82rem; line-height:1.45; overflow-x:auto; max-height:280px; overflow-y:auto; white-space:pre-wrap; word-break:break-word;"></pre>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:6px;">
+            <button id="devbotCopyBtn" class="btn" type="button">Copy code</button>
+            <button id="devbotInsertBtn" class="btn btn-primary" type="button">Insert into editor</button>
+          </div>
+        </div>
+      </div>
+
+      <p id="devbotError" hidden style="margin:0; color:var(--danger); font-size:0.88rem;"></p>
+      <p id="devbotLoading" hidden style="margin:0; color:var(--muted); font-size:0.88rem;">Generating... this may take 5-15 seconds</p>
     </section>
   </aside>
 

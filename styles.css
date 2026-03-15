@@ -661,7 +661,7 @@ body.file-drawer-open .file-handle {
   }
 
   .header-actions {
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(8, minmax(0, 1fr));
   }
 
   .project-bar {
@@ -675,5 +675,27 @@ body.file-drawer-open .file-handle {
   .modal-card {
     max-width: 460px;
     margin: 0 auto;
+  }
+}
+
+.devbot-chip {
+  font-size: 0.8rem;
+  min-height: 34px;
+  padding: 5px 10px;
+  border-radius: 20px;
+  background: var(--panel-3);
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+.devbot-chip:active {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+@media (max-width: 600px) {
+  .devbot-chip {
+    min-height: 40px;
+    font-size: 0.9rem;
   }
 }
